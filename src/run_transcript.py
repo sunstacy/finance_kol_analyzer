@@ -42,6 +42,22 @@ def main() -> None:
         default="en",
         help="Comma-separated language codes ordered by preference, for example: en,zh-Hans",
     )
+    parser.add_argument(
+        "--fallback-language",
+        action="store_true",
+        default=True,
+        help=(
+            "If the requested language is unavailable, automatically use the first "
+            "available language instead of failing (default: on). "
+            "Pass --no-fallback-language to disable."
+        ),
+    )
+    parser.add_argument(
+        "--no-fallback-language",
+        dest="fallback_language",
+        action="store_false",
+        help="Fail instead of falling back to another language.",
+    )
     args = parser.parse_args()
 
     links = read_youtube_links(args.input)
@@ -55,7 +71,11 @@ def main() -> None:
     for link in links:
         try:
             title = fetch_youtube_title(link)
-            transcript = get_youtube_transcript_text(link, languages=languages)
+            transcript = get_youtube_transcript_text(
+                link,
+                languages=languages,
+                fallback_to_any_language=args.fallback_language,
+            )
             output_path = next_available_path(
                 args.output_dir / f"{sanitize_filename(title)}.txt"
             )
