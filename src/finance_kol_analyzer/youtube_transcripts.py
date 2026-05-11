@@ -29,6 +29,9 @@ class TranscriptApi(Protocol):
     ) -> Any:
         """Fetch a transcript for a YouTube video."""
 
+    def list(self, video_id: str) -> Any:
+        """List available transcripts for a YouTube video."""
+
 
 _VIDEO_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
 _YOUTUBE_HOSTS = {
@@ -97,6 +100,7 @@ def get_youtube_transcript(
     languages: Sequence[str] | str = ("en",),
     *,
     preserve_formatting: bool = False,
+    fallback_to_any_language: bool = False,
     api: TranscriptApi | None = None,
 ) -> list[TranscriptSnippet]:
     """Fetch timestamped transcript snippets for a YouTube link.
@@ -111,6 +115,9 @@ def get_youtube_transcript(
             Defaults to English. A single language string is accepted.
         preserve_formatting: Keep YouTube formatting tags when supported by the
             upstream transcript API.
+        fallback_to_any_language: If True and the requested languages are not
+            available, automatically fetch the first available transcript in
+            any language instead of raising an error.
         api: Optional injected ``YouTubeTranscriptApi``-compatible instance.
             This is useful for tests or for supplying a preconfigured proxy.
 
@@ -127,11 +134,19 @@ def get_youtube_transcript(
     normalized_languages = _normalize_languages(languages)
     transcript_api = api or _default_transcript_api()
 
-    transcript = transcript_api.fetch(
-        video_id,
-        languages=normalized_languages,
-        preserve_formatting=preserve_formatting,
-    )
+    try:
+        transcript = transcript_api.fetch(
+            video_id,
+            languages=normalized_languages,
+            preserve_formatting=preserve_formatting,
+        )
+    except Exception as exc:
+        if not fallback_to_any_language:
+            raise
+        transcript = _fetch_any_available_transcript(
+            transcript_api, video_id, preserve_formatting, original_error=exc
+        )
+
     raw_snippets = (
         transcript.to_raw_data()
         if hasattr(transcript, "to_raw_data")
@@ -141,11 +156,27 @@ def get_youtube_transcript(
     return [_normalize_snippet(snippet) for snippet in raw_snippets]
 
 
+def _fetch_any_available_transcript(
+    transcript_api: TranscriptApi,
+    video_id: str,
+    preserve_formatting: bool,
+    original_error: Exception,
+) -> Any:
+    """Return the first available transcript regardless of language."""
+    try:
+        transcript_list = transcript_api.list(video_id)
+        transcript = next(iter(transcript_list))
+        return transcript.fetch()
+    except Exception:
+        raise original_error
+
+
 def get_youtube_transcript_text(
     youtube_link: str,
     languages: Sequence[str] | str = ("en",),
     *,
     preserve_formatting: bool = False,
+    fallback_to_any_language: bool = False,
     separator: str = "\n",
     api: TranscriptApi | None = None,
 ) -> str:
@@ -155,6 +186,7 @@ def get_youtube_transcript_text(
         youtube_link,
         languages=languages,
         preserve_formatting=preserve_formatting,
+        fallback_to_any_language=fallback_to_any_language,
         api=api,
     )
     return separator.join(snippet["text"] for snippet in snippets)
