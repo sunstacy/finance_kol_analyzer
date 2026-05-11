@@ -1,20 +1,11 @@
 from __future__ import annotations
 
 import argparse
-import json
 import re
-import ssl
 from uuid import uuid4
 from pathlib import Path
-from urllib.parse import urlencode
-from urllib.request import urlopen
 
-import certifi
-
-from finance_kol_analyzer import get_youtube_transcript_text
-
-# Use certifi's CA bundle so macOS Python can verify HTTPS certificates.
-_SSL_CONTEXT = ssl.create_default_context(cafile=certifi.where())
+from finance_kol_analyzer import fetch_youtube_metadata, get_youtube_transcript_text
 
 
 DEFAULT_INPUT_FILE = Path("youtube_links.txt")
@@ -70,17 +61,18 @@ def main() -> None:
 
     for link in links:
         try:
-            title = fetch_youtube_title(link)
+            metadata = fetch_youtube_metadata(link)
             transcript = get_youtube_transcript_text(
                 link,
                 languages=languages,
                 fallback_to_any_language=args.fallback_language,
             )
             output_path = next_available_path(
-                args.output_dir / f"{sanitize_filename(title)}.txt"
+                args.output_dir / f"{sanitize_filename(metadata.title)}.txt"
             )
-            output_path.write_text(transcript, encoding="utf-8")
-            print(f"Saved: {output_path}")
+            content = metadata.to_header() + "\n\n" + transcript
+            output_path.write_text(content, encoding="utf-8")
+            print(f"Saved: {output_path}  [{metadata.channel} · {metadata.publish_date_formatted}]")
         except Exception as exc:
             print(f"Failed: {link}\n  Reason: {exc}")
 
@@ -93,17 +85,6 @@ def read_youtube_links(input_file: Path) -> list[str]:
         for line in input_file.read_text(encoding="utf-8").splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-
-
-def fetch_youtube_title(youtube_link: str) -> str:
-    """Fetch a YouTube title using the public oEmbed endpoint."""
-
-    query = urlencode({"url": youtube_link, "format": "json"})
-    with urlopen(
-        f"https://www.youtube.com/oembed?{query}", timeout=15, context=_SSL_CONTEXT
-    ) as response:
-        data = json.loads(response.read().decode("utf-8"))
-    return str(data["title"])
 
 
 def sanitize_filename(title: str) -> str:
