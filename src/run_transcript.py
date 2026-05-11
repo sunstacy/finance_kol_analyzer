@@ -1,15 +1,32 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import re
+from datetime import datetime, timezone
 from uuid import uuid4
 from pathlib import Path
 
 from finance_kol_analyzer import fetch_youtube_metadata, get_youtube_transcript_text
+from finance_kol_analyzer.youtube_metadata import YouTubeMetadata
 
 
 DEFAULT_INPUT_FILE = Path("youtube_links.txt")
 DEFAULT_OUTPUT_DIR = Path("transcripts")
+DEFAULT_LOG_FILE = Path("processed_log.csv")
+
+LOG_COLUMNS = [
+    "processed_at",
+    "title",
+    "channel",
+    "publish_date",
+    "duration",
+    "views",
+    "url",
+    "transcript_file",
+    "status",
+    "error",
+]
 
 
 def main() -> None:
@@ -49,6 +66,12 @@ def main() -> None:
         action="store_false",
         help="Fail instead of falling back to another language.",
     )
+    parser.add_argument(
+        "--log",
+        default=DEFAULT_LOG_FILE,
+        type=Path,
+        help="CSV file to append processed video records to.",
+    )
     args = parser.parse_args()
 
     links = read_youtube_links(args.input)
@@ -72,9 +95,40 @@ def main() -> None:
             )
             content = metadata.to_header() + "\n\n" + transcript
             output_path.write_text(content, encoding="utf-8")
+            append_log(args.log, metadata, output_path, status="ok")
             print(f"Saved: {output_path}  [{metadata.channel} · {metadata.publish_date_formatted}]")
         except Exception as exc:
+            append_log(args.log, None, None, status="failed", error=str(exc), url=link)
             print(f"Failed: {link}\n  Reason: {exc}")
+
+
+def append_log(
+    log_file: Path,
+    metadata: YouTubeMetadata | None,
+    transcript_file: Path | None,
+    *,
+    status: str,
+    error: str = "",
+    url: str = "",
+) -> None:
+    """Append one row to the CSV log, creating headers if the file is new."""
+    is_new = not log_file.exists()
+    with log_file.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=LOG_COLUMNS)
+        if is_new:
+            writer.writeheader()
+        writer.writerow({
+            "processed_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "title": metadata.title if metadata else "",
+            "channel": metadata.channel if metadata else "",
+            "publish_date": metadata.publish_date_formatted if metadata else "",
+            "duration": metadata.duration_formatted if metadata else "",
+            "views": metadata.view_count if metadata else "",
+            "url": metadata.url if metadata else url,
+            "transcript_file": str(transcript_file) if transcript_file else "",
+            "status": status,
+            "error": error,
+        })
 
 
 def read_youtube_links(input_file: Path) -> list[str]:
