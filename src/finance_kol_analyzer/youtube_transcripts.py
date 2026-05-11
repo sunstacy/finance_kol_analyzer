@@ -194,6 +194,8 @@ def create_youtube_transcript_api_from_env() -> TranscriptApi:
             "Webshare proxy variables, not both."
         )
 
+    http_client = _make_certifi_session()
+
     if has_webshare_proxy:
         if not webshare_username or not webshare_password:
             raise ValueError(
@@ -201,26 +203,37 @@ def create_youtube_transcript_api_from_env() -> TranscriptApi:
                 "YOUTUBE_TRANSCRIPT_WEBSHARE_PASSWORD are required."
             )
         return YouTubeTranscriptApi(
+            http_client=http_client,
             proxy_config=WebshareProxyConfig(
                 proxy_username=webshare_username,
                 proxy_password=webshare_password,
                 filter_ip_locations=webshare_locations,
-            )
+            ),
         )
 
     if has_generic_proxy:
         return YouTubeTranscriptApi(
+            http_client=http_client,
             proxy_config=GenericProxyConfig(
                 http_url=http_proxy,
                 https_url=https_proxy,
-            )
+            ),
         )
 
-    return YouTubeTranscriptApi()
+    return YouTubeTranscriptApi(http_client=http_client)
 
 
 def _default_transcript_api() -> TranscriptApi:
     return create_youtube_transcript_api_from_env()
+
+
+def _make_certifi_session() -> Any:
+    import certifi
+    import requests
+
+    session = requests.Session()
+    session.verify = certifi.where()
+    return session
 
 
 def _with_scheme_if_needed(link: str) -> str:
