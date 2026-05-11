@@ -29,3 +29,37 @@ The upstream library depends on YouTube's undocumented transcript endpoint. In
 cloud environments YouTube may block requests from datacenter IPs; if that
 happens, configure a `YouTubeTranscriptApi` instance with a proxy and pass it to
 `get_youtube_transcript(..., api=your_api)`.
+
+### When YouTube blocks the machine IP
+
+If you see `RequestBlocked`, the code is running but YouTube is refusing the
+request from that IP address. This is common in hosted/cloud environments. The
+simplest fix is to run the same script from a local laptop or desktop network.
+For cloud runs, configure a rotating residential proxy.
+
+Generic proxy:
+
+```bash
+export YOUTUBE_TRANSCRIPT_PROXY="http://user:password@proxy-host:proxy-port"
+python3 run_transcript.py
+```
+
+Or separate HTTP/HTTPS proxies:
+
+```bash
+export YOUTUBE_TRANSCRIPT_HTTP_PROXY="http://user:password@proxy-host:proxy-port"
+export YOUTUBE_TRANSCRIPT_HTTPS_PROXY="http://user:password@proxy-host:proxy-port"
+python3 run_transcript.py
+```
+
+Webshare residential proxy:
+
+```bash
+export YOUTUBE_TRANSCRIPT_WEBSHARE_USERNAME="your-webshare-username"
+export YOUTUBE_TRANSCRIPT_WEBSHARE_PASSWORD="your-webshare-password"
+export YOUTUBE_TRANSCRIPT_WEBSHARE_LOCATIONS="us"
+python3 run_transcript.py
+```
+
+After these variables are set, normal calls such as
+`get_youtube_transcript_text(url)` automatically use the proxy.

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any, Protocol, TypedDict, cast
@@ -159,10 +160,67 @@ def get_youtube_transcript_text(
     return separator.join(snippet["text"] for snippet in snippets)
 
 
-def _default_transcript_api() -> TranscriptApi:
+def create_youtube_transcript_api_from_env() -> TranscriptApi:
+    """Create a transcript API client configured from proxy environment vars.
+
+    Supported variables:
+        YOUTUBE_TRANSCRIPT_PROXY: Generic proxy URL used for both HTTP and HTTPS.
+        YOUTUBE_TRANSCRIPT_HTTP_PROXY: Generic HTTP proxy URL.
+        YOUTUBE_TRANSCRIPT_HTTPS_PROXY: Generic HTTPS proxy URL.
+        YOUTUBE_TRANSCRIPT_WEBSHARE_USERNAME: Webshare proxy username.
+        YOUTUBE_TRANSCRIPT_WEBSHARE_PASSWORD: Webshare proxy password.
+        YOUTUBE_TRANSCRIPT_WEBSHARE_LOCATIONS: Optional comma-separated
+            Webshare country codes, such as ``us,de``.
+    """
+
     from youtube_transcript_api import YouTubeTranscriptApi
+    from youtube_transcript_api.proxies import GenericProxyConfig, WebshareProxyConfig
+
+    generic_proxy = os.getenv("YOUTUBE_TRANSCRIPT_PROXY")
+    http_proxy = os.getenv("YOUTUBE_TRANSCRIPT_HTTP_PROXY") or generic_proxy
+    https_proxy = os.getenv("YOUTUBE_TRANSCRIPT_HTTPS_PROXY") or generic_proxy
+    webshare_username = os.getenv("YOUTUBE_TRANSCRIPT_WEBSHARE_USERNAME")
+    webshare_password = os.getenv("YOUTUBE_TRANSCRIPT_WEBSHARE_PASSWORD")
+    webshare_locations = _parse_comma_separated_env(
+        os.getenv("YOUTUBE_TRANSCRIPT_WEBSHARE_LOCATIONS")
+    )
+
+    has_generic_proxy = bool(http_proxy or https_proxy)
+    has_webshare_proxy = bool(webshare_username or webshare_password)
+
+    if has_generic_proxy and has_webshare_proxy:
+        raise ValueError(
+            "Configure either generic YouTube transcript proxy variables or "
+            "Webshare proxy variables, not both."
+        )
+
+    if has_webshare_proxy:
+        if not webshare_username or not webshare_password:
+            raise ValueError(
+                "Both YOUTUBE_TRANSCRIPT_WEBSHARE_USERNAME and "
+                "YOUTUBE_TRANSCRIPT_WEBSHARE_PASSWORD are required."
+            )
+        return YouTubeTranscriptApi(
+            proxy_config=WebshareProxyConfig(
+                proxy_username=webshare_username,
+                proxy_password=webshare_password,
+                filter_ip_locations=webshare_locations,
+            )
+        )
+
+    if has_generic_proxy:
+        return YouTubeTranscriptApi(
+            proxy_config=GenericProxyConfig(
+                http_url=http_proxy,
+                https_url=https_proxy,
+            )
+        )
 
     return YouTubeTranscriptApi()
+
+
+def _default_transcript_api() -> TranscriptApi:
+    return create_youtube_transcript_api_from_env()
 
 
 def _with_scheme_if_needed(link: str) -> str:
@@ -201,6 +259,12 @@ def _normalize_languages(languages: Sequence[str] | str) -> list[str]:
     if not normalized:
         raise ValueError("At least one transcript language code is required.")
     return normalized
+
+
+def _parse_comma_separated_env(value: str | None) -> list[str] | None:
+    if value is None:
+        return None
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 
 def _normalize_snippet(snippet: Any) -> TranscriptSnippet:

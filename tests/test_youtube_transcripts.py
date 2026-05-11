@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from finance_kol_analyzer.youtube_transcripts import (
+    create_youtube_transcript_api_from_env,
     extract_youtube_video_id,
     get_youtube_transcript,
     get_youtube_transcript_text,
@@ -90,6 +91,51 @@ def test_get_youtube_transcript_text_joins_snippet_text() -> None:
 def test_get_youtube_transcript_requires_at_least_one_language() -> None:
     with pytest.raises(ValueError):
         get_youtube_transcript(VIDEO_ID, languages=[], api=FakeTranscriptApi())
+
+
+def test_create_youtube_transcript_api_from_env_uses_generic_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YOUTUBE_TRANSCRIPT_PROXY", "http://user:pass@proxy.test:8080")
+    monkeypatch.delenv("YOUTUBE_TRANSCRIPT_HTTP_PROXY", raising=False)
+    monkeypatch.delenv("YOUTUBE_TRANSCRIPT_HTTPS_PROXY", raising=False)
+    monkeypatch.delenv("YOUTUBE_TRANSCRIPT_WEBSHARE_USERNAME", raising=False)
+    monkeypatch.delenv("YOUTUBE_TRANSCRIPT_WEBSHARE_PASSWORD", raising=False)
+
+    api = create_youtube_transcript_api_from_env()
+    proxy_config = api._fetcher._proxy_config  # type: ignore[attr-defined]
+
+    assert proxy_config.http_url == "http://user:pass@proxy.test:8080"
+    assert proxy_config.https_url == "http://user:pass@proxy.test:8080"
+
+
+def test_create_youtube_transcript_api_from_env_uses_webshare_proxy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("YOUTUBE_TRANSCRIPT_PROXY", raising=False)
+    monkeypatch.delenv("YOUTUBE_TRANSCRIPT_HTTP_PROXY", raising=False)
+    monkeypatch.delenv("YOUTUBE_TRANSCRIPT_HTTPS_PROXY", raising=False)
+    monkeypatch.setenv("YOUTUBE_TRANSCRIPT_WEBSHARE_USERNAME", "username")
+    monkeypatch.setenv("YOUTUBE_TRANSCRIPT_WEBSHARE_PASSWORD", "password")
+    monkeypatch.setenv("YOUTUBE_TRANSCRIPT_WEBSHARE_LOCATIONS", "us, de")
+
+    api = create_youtube_transcript_api_from_env()
+    proxy_config = api._fetcher._proxy_config  # type: ignore[attr-defined]
+
+    assert proxy_config.proxy_username == "username"
+    assert proxy_config.proxy_password == "password"
+    assert proxy_config._filter_ip_locations == ["us", "de"]
+
+
+def test_create_youtube_transcript_api_from_env_rejects_conflicting_proxy_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("YOUTUBE_TRANSCRIPT_PROXY", "http://proxy.test:8080")
+    monkeypatch.setenv("YOUTUBE_TRANSCRIPT_WEBSHARE_USERNAME", "username")
+    monkeypatch.setenv("YOUTUBE_TRANSCRIPT_WEBSHARE_PASSWORD", "password")
+
+    with pytest.raises(ValueError):
+        create_youtube_transcript_api_from_env()
 
 
 class FakeTranscriptApi:
