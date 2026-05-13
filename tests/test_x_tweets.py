@@ -268,10 +268,10 @@ def test_collect_user_tweets_to_monthly_files_invalid_window() -> None:
         )
 
 
-def test_load_yaml_secrtet_key_as_consumer_secret(tmp_path) -> None:
+def test_load_yaml_secret_key_as_consumer_secret(tmp_path) -> None:
     p = tmp_path / "t.yaml"
     p.write_text(
-        "consumer_key: ck\nsecrtet_key: cs\naccess_token: at\nbearer_token: bt\n",
+        "consumer_key: ck\nsecret_key: cs\naccess_token: at\nbearer_token: bt\n",
         encoding="utf-8",
     )
     cfg = load_twitter_config(p)

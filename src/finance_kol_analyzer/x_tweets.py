@@ -6,7 +6,7 @@ the X API. Authenticate with either:
 * **Bearer token** (OAuth 2.0 app-only): ``bearer_token`` in YAML or
   ``TWITTER_BEARER_TOKEN`` / ``X_BEARER_TOKEN``, or
 * **OAuth 1.0a user context** (all four): ``consumer_key``, ``consumer_secret``
-  (or ``secret_key`` / common typo ``secrtet_key``), ``access_token``, and
+  (or ``secret_key``), ``access_token``, and
   ``access_token_secret`` (or ``oauth_token_secret``).
 
 If a ``bearer_token`` is present, it is preferred for timeline reads. Otherwise
@@ -101,7 +101,7 @@ def load_twitter_config(path: Path | str) -> TwitterConfig:
 
     * **Bearer:** ``bearer_token``
     * **App (OAuth1):** ``consumer_key`` / ``api_key``; ``consumer_secret`` or
-      ``secret_key`` (typo: ``secrtet_key`` is also accepted as the app secret).
+      ``secret_key`` / ``api_secret``.
     * **User (OAuth1):** ``access_token``; ``access_token_secret`` or
       ``oauth_token_secret`` / ``access_secret``.
 
@@ -171,7 +171,7 @@ def create_tweepy_client_from_config(cfg: TwitterConfig) -> Client:
     if not cfg.consumer_key:
         gaps.append("consumer_key")
     if not cfg.consumer_secret:
-        gaps.append("consumer_secret (or secret_key / secrtet_key)")
+        gaps.append("consumer_secret (or secret_key)")
     if not cfg.access_token:
         gaps.append("access_token")
     if not cfg.access_token_secret:
@@ -431,7 +431,6 @@ def _twitter_config_from_mapping(m: dict[str, Any]) -> TwitterConfig:
             "consumer_secret",
             "consumerSecret",
             "secret_key",
-            "secrtet_key",
             "api_secret",
             "apiSecret",
         ),
