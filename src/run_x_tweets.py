@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from pathlib import Path
 
 from finance_kol_analyzer.x_tweets import collect_x_user_tweets
 
@@ -31,10 +32,16 @@ def main() -> None:
         metavar="N",
         help="Maximum number of posts to fetch (default: 100).",
     )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Path to twitter_config.yaml (default: TWITTER_CONFIG_PATH or ./twitter_config.yaml).",
+    )
     args = parser.parse_args()
 
     try:
-        tweets = collect_x_user_tweets(args.username, max_tweets=args.max)
+        tweets = collect_x_user_tweets(args.username, max_tweets=args.max, config_path=args.config)
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(1) from exc

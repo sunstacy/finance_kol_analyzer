@@ -1,6 +1,15 @@
 """Finance KOL analyzer utilities."""
 
-from .x_tweets import XTweet, collect_x_user_tweets, create_x_client_from_env, normalize_x_username
+from .x_tweets import (
+    TwitterConfig,
+    XTweet,
+    collect_x_user_tweets,
+    create_x_client_from_env,
+    load_twitter_config,
+    normalize_x_username,
+    resolve_twitter_config,
+    resolve_twitter_config_path,
+)
 from .youtube_metadata import YouTubeMetadata, fetch_youtube_metadata
 from .youtube_transcripts import (
     TranscriptSnippet,
@@ -11,10 +20,14 @@ from .youtube_transcripts import (
 )
 
 __all__ = [
+    "TwitterConfig",
     "XTweet",
     "collect_x_user_tweets",
     "create_x_client_from_env",
+    "load_twitter_config",
     "normalize_x_username",
+    "resolve_twitter_config",
+    "resolve_twitter_config_path",
     "YouTubeMetadata",
     "fetch_youtube_metadata",
     "TranscriptSnippet",

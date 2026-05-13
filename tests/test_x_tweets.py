@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -10,7 +11,10 @@ from finance_kol_analyzer.x_tweets import (
     XTweet,
     _tweet_model_to_xtweet,
     collect_x_user_tweets,
+    load_twitter_config,
     normalize_x_username,
+    resolve_twitter_config,
+    resolve_twitter_config_path,
 )
 
 
@@ -103,3 +107,47 @@ def test_collect_x_user_not_found() -> None:
 def test_collect_x_max_tweets_invalid() -> None:
     with pytest.raises(ValueError, match="max_tweets"):
         collect_x_user_tweets("x", max_tweets=0, client=MagicMock())
+
+
+def test_load_twitter_config_secret_key_alias(tmp_path) -> None:
+    p = tmp_path / "twitter_config.yaml"
+    p.write_text(
+        "consumer_key: ck\nsecret_key: cs\nbearer_token: bt\n",
+        encoding="utf-8",
+    )
+    cfg = load_twitter_config(p)
+    assert cfg.consumer_key == "ck"
+    assert cfg.consumer_secret == "cs"
+    assert cfg.bearer_token == "bt"
+
+
+def test_load_twitter_config_nested_twitter_key(tmp_path) -> None:
+    p = tmp_path / "c.yaml"
+    p.write_text(
+        "other: 1\ntwitter:\n  bearer_token: nested\n  consumer_key: k\n",
+        encoding="utf-8",
+    )
+    cfg = load_twitter_config(p)
+    assert cfg.bearer_token == "nested"
+    assert cfg.consumer_key == "k"
+
+
+def test_resolve_twitter_config_env_overrides_file(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    p = tmp_path / "twitter_config.yaml"
+    p.write_text("bearer_token: fromfile\n", encoding="utf-8")
+    monkeypatch.delenv("TWITTER_BEARER_TOKEN", raising=False)
+    monkeypatch.delenv("X_BEARER_TOKEN", raising=False)
+    monkeypatch.setenv("TWITTER_BEARER_TOKEN", "fromenv")
+    cfg = resolve_twitter_config(p)
+    assert cfg.bearer_token == "fromenv"
+
+
+def test_resolve_twitter_config_path_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TWITTER_CONFIG_PATH", raising=False)
+    assert resolve_twitter_config_path(None) == Path("twitter_config.yaml")
+
+
+def test_resolve_twitter_config_path_from_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    p = tmp_path / "x.yaml"
+    monkeypatch.setenv("TWITTER_CONFIG_PATH", str(p))
+    assert resolve_twitter_config_path(None) == p
