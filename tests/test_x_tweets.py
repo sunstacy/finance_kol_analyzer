@@ -13,9 +13,24 @@ from finance_kol_analyzer.x_tweets import (
     collect_x_user_tweets,
     load_twitter_config,
     normalize_x_username,
+    parse_utc_date,
     resolve_twitter_config,
     resolve_twitter_config_path,
+    utc_year_bounds,
 )
+
+
+class TestUtcYearBounds:
+    def test_2025_window(self) -> None:
+        start, end = utc_year_bounds(2025)
+        assert start.isoformat() == "2025-01-01T00:00:00+00:00"
+        assert end.isoformat() == "2026-01-01T00:00:00+00:00"
+        assert start < end
+
+
+class TestParseUtcDate:
+    def test_parses_midnight_utc(self) -> None:
+        assert parse_utc_date("2025-06-15").isoformat() == "2025-06-15T00:00:00+00:00"
 
 
 class TestNormalizeXUsername:
@@ -107,6 +122,44 @@ def test_collect_x_user_not_found() -> None:
 def test_collect_x_max_tweets_invalid() -> None:
     with pytest.raises(ValueError, match="max_tweets"):
         collect_x_user_tweets("x", max_tweets=0, client=MagicMock())
+
+
+def test_collect_x_invalid_time_window() -> None:
+    from datetime import datetime, timezone
+
+    t0 = datetime(2025, 6, 1, tzinfo=timezone.utc)
+    t1 = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    with pytest.raises(ValueError, match="start_time"):
+        collect_x_user_tweets("x", max_tweets=10, client=MagicMock(), start_time=t0, end_time=t1)
+
+
+def test_collect_x_passes_timeline_filters_to_api() -> None:
+    from datetime import datetime, timezone
+
+    client = MagicMock()
+    user = MagicMock()
+    user.id = "42"
+    client.get_user.return_value = MagicMock(data=user)
+    client.get_users_tweets.return_value = MagicMock(data=[], meta={})
+
+    start = datetime(2025, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    collect_x_user_tweets(
+        "acct",
+        max_tweets=5,
+        client=client,
+        start_time=start,
+        end_time=end,
+        exclude_retweets=True,
+        exclude_replies=True,
+        include_public_metrics=False,
+    )
+
+    call_kw = client.get_users_tweets.call_args.kwargs
+    assert call_kw["start_time"] is start
+    assert call_kw["end_time"] is end
+    assert call_kw["exclude"] == ["retweets", "replies"]
+    assert call_kw["tweet_fields"] == ["created_at"]
 
 
 def test_load_twitter_config_secret_key_alias(tmp_path) -> None:

@@ -7,8 +7,10 @@ from .x_tweets import (
     create_x_client_from_env,
     load_twitter_config,
     normalize_x_username,
+    parse_utc_date,
     resolve_twitter_config,
     resolve_twitter_config_path,
+    utc_year_bounds,
 )
 from .youtube_metadata import YouTubeMetadata, fetch_youtube_metadata
 from .youtube_transcripts import (
@@ -26,8 +28,10 @@ __all__ = [
     "create_x_client_from_env",
     "load_twitter_config",
     "normalize_x_username",
+    "parse_utc_date",
     "resolve_twitter_config",
     "resolve_twitter_config_path",
+    "utc_year_bounds",
     "YouTubeMetadata",
     "fetch_youtube_metadata",
     "TranscriptSnippet",

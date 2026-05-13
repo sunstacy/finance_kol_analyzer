@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -42,6 +42,25 @@ class XTweet:
     text: str
     created_at: datetime | None = None
     public_metrics: dict[str, int] = field(default_factory=dict)
+
+
+def utc_year_bounds(year: int) -> tuple[datetime, datetime]:
+    """Return ``(start_time, end_time)`` for X user-timeline filters: inclusive start, **exclusive** end (UTC).
+
+    The X API ``end_time`` parameter is exclusive; use ``year + 1`` Jan 1 as end.
+    """
+
+    start = datetime(year, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    end = datetime(year + 1, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+    return start, end
+
+
+def parse_utc_date(date_str: str) -> datetime:
+    """Parse ``YYYY-MM-DD`` as midnight UTC."""
+
+    raw = date_str.strip()
+    dt = datetime.strptime(raw, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    return dt
 
 
 def normalize_x_username(username: str) -> str:
@@ -138,6 +157,11 @@ def collect_x_user_tweets(
     bearer_token: str | None = None,
     client: Client | None = None,
     config_path: Path | str | None = None,
+    start_time: datetime | None = None,
+    end_time: datetime | None = None,
+    exclude_retweets: bool = False,
+    exclude_replies: bool = False,
+    include_public_metrics: bool = True,
 ) -> list[XTweet]:
     """Return recent posts from the given X username (handle, with or without ``@``).
 
@@ -147,6 +171,12 @@ def collect_x_user_tweets(
         bearer_token: OAuth 2.0 Bearer token. If omitted, ``client`` or env / YAML is used.
         client: Optional pre-built :class:`tweepy.Client` (e.g. for tests).
         config_path: Optional path to ``twitter_config.yaml`` (defaults per :func:`resolve_twitter_config_path`).
+        start_time: If set, only tweets at or after this instant (UTC). Pass to the API to avoid
+            paying for posts outside the window when usage is billed per returned post.
+        end_time: If set, only tweets **before** this instant (UTC). The X ``end_time`` parameter is exclusive.
+        exclude_retweets: When true, omit retweets from results (fewer rows if you do not need them).
+        exclude_replies: When true, omit replies from results.
+        include_public_metrics: When false, omit ``public_metrics`` from ``tweet_fields`` (slightly leaner payloads).
 
     Returns:
         Newest-first list of :class:`XTweet` instances.
@@ -157,6 +187,8 @@ def collect_x_user_tweets(
     """
     if max_tweets < 1:
         raise ValueError("max_tweets must be at least 1")
+    if start_time is not None and end_time is not None and start_time >= end_time:
+        raise ValueError("start_time must be before end_time")
 
     if client is not None:
         resolved = client
@@ -173,17 +205,35 @@ def collect_x_user_tweets(
         raise ValueError(f"User not found: @{handle}")
     user_id = user_resp.data.id
 
+    exclude: list[str] = []
+    if exclude_retweets:
+        exclude.append("retweets")
+    if exclude_replies:
+        exclude.append("replies")
+
+    tweet_fields: list[str] = ["created_at"]
+    if include_public_metrics:
+        tweet_fields.append("public_metrics")
+
     tweets: list[XTweet] = []
     pagination_token: str | None = None
 
     while len(tweets) < max_tweets:
         page_size = min(100, max_tweets - len(tweets))
-        resp = resolved.get_users_tweets(
-            user_id,
-            max_results=page_size,
-            pagination_token=pagination_token,
-            tweet_fields=["created_at", "public_metrics"],
-        )
+        kwargs: dict[str, Any] = {
+            "max_results": page_size,
+            "tweet_fields": tweet_fields,
+        }
+        if pagination_token is not None:
+            kwargs["pagination_token"] = pagination_token
+        if exclude:
+            kwargs["exclude"] = exclude
+        if start_time is not None:
+            kwargs["start_time"] = start_time
+        if end_time is not None:
+            kwargs["end_time"] = end_time
+
+        resp = resolved.get_users_tweets(user_id, **kwargs)
         if not resp.data:
             break
         for tweet in resp.data:
