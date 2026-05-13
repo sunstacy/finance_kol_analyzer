@@ -1,13 +1,16 @@
 """Collect posts from an X (Twitter) user timeline via the official API v2.
 
 Uses `tweepy` (https://github.com/tweepy/tweepy), the de facto Python client for
-the X API. Provide a **Bearer token** (OAuth 2.0 app-only auth) via
-``TWITTER_BEARER_TOKEN`` / ``X_BEARER_TOKEN``, a ``twitter_config.yaml`` file
-(see :func:`load_twitter_config`), or ``bearer_token=`` / ``client=`` on the call.
+the X API. Authenticate with either:
 
-``consumer_key`` / ``consumer_secret`` (or ``secret_key`` in YAML) are read and
-kept on :class:`TwitterConfig` for your own use; timeline helpers here use the
-bearer token.
+* **Bearer token** (OAuth 2.0 app-only): ``bearer_token`` in YAML or
+  ``TWITTER_BEARER_TOKEN`` / ``X_BEARER_TOKEN``, or
+* **OAuth 1.0a user context** (all four): ``consumer_key``, ``consumer_secret``
+  (or ``secret_key`` / common typo ``secrtet_key``), ``access_token``, and
+  ``access_token_secret`` (or ``oauth_token_secret``).
+
+If a ``bearer_token`` is present, it is preferred for timeline reads. Otherwise
+a user-context ``Client`` is built when all OAuth1 fields are available.
 
 Timeline access and volume depend on your X developer project tier; see X
 developer documentation for current limits.
@@ -35,6 +38,8 @@ class TwitterConfig:
     bearer_token: str | None = None
     consumer_key: str | None = None
     consumer_secret: str | None = None
+    access_token: str | None = None
+    access_token_secret: str | None = None
 
 
 @dataclass(frozen=True)
@@ -87,16 +92,23 @@ def resolve_twitter_config_path(config_path: Path | str | None = None) -> Path:
 
 
 def load_twitter_config(path: Path | str) -> TwitterConfig:
-    """Load ``consumer_key``, ``consumer_secret`` / ``secret_key``, and ``bearer_token`` from a YAML file.
+    """Load X API credentials from a YAML file.
 
     Top-level keys are read. If a ``twitter`` mapping exists, its keys are merged
     over the rest (nested wins on collision).
 
-    Recognized field names:
+    Common keys:
 
-    * Bearer: ``bearer_token``
-    * API key: ``consumer_key``, ``api_key``
-    * API secret: ``consumer_secret``, ``secret_key``, ``api_secret``
+    * **Bearer:** ``bearer_token``
+    * **App (OAuth1):** ``consumer_key`` / ``api_key``; ``consumer_secret`` or
+      ``secret_key`` (typo: ``secrtet_key`` is also accepted as the app secret).
+    * **User (OAuth1):** ``access_token``; ``access_token_secret`` or
+      ``oauth_token_secret`` / ``access_secret``.
+
+    If you only store ``consumer_key``, ``access_token``, ``secret_key``, and
+    ``bearer_token``, then ``secret_key`` is treated as the **consumer (API) key
+    secret**; the bearer token is enough for typical timeline reads. Add
+    ``access_token_secret`` only if you rely on OAuth1 user context without a bearer.
     """
 
     p = Path(path)
@@ -137,6 +149,44 @@ def resolve_twitter_config(config_path: Path | str | None = None) -> TwitterConf
             os.environ.get("TWITTER_API_SECRET"),
             base.consumer_secret,
         ),
+        access_token=_first_str(
+            os.environ.get("TWITTER_ACCESS_TOKEN"),
+            os.environ.get("TWITTER_OAUTH_TOKEN"),
+            base.access_token,
+        ),
+        access_token_secret=_first_str(
+            os.environ.get("TWITTER_ACCESS_TOKEN_SECRET"),
+            os.environ.get("TWITTER_OAUTH_TOKEN_SECRET"),
+            base.access_token_secret,
+        ),
+    )
+
+
+def create_tweepy_client_from_config(cfg: TwitterConfig) -> Client:
+    """Build a :class:`tweepy.Client` from a resolved :class:`TwitterConfig`."""
+
+    if cfg.bearer_token:
+        return Client(bearer_token=cfg.bearer_token)
+    gaps: list[str] = []
+    if not cfg.consumer_key:
+        gaps.append("consumer_key")
+    if not cfg.consumer_secret:
+        gaps.append("consumer_secret (or secret_key / secrtet_key)")
+    if not cfg.access_token:
+        gaps.append("access_token")
+    if not cfg.access_token_secret:
+        gaps.append("access_token_secret (or oauth_token_secret)")
+    if not gaps:
+        return Client(
+            consumer_key=cfg.consumer_key,
+            consumer_secret=cfg.consumer_secret,
+            access_token=cfg.access_token,
+            access_token_secret=cfg.access_token_secret,
+        )
+    raise ValueError(
+        "Add bearer_token for app-only auth, or supply OAuth 1.0a user credentials: "
+        "consumer_key, consumer_secret (or secret_key), access_token, and access_token_secret. "
+        f"Missing: {', '.join(gaps)}."
     )
 
 
@@ -144,13 +194,7 @@ def create_x_client_from_env(config_path: Path | str | None = None) -> Client:
     """Build a :class:`tweepy.Client` from env vars and/or ``twitter_config.yaml``."""
 
     cfg = resolve_twitter_config(config_path)
-    if not cfg.bearer_token:
-        msg = (
-            "No bearer token: set TWITTER_BEARER_TOKEN or X_BEARER_TOKEN, or add "
-            "bearer_token to twitter_config.yaml (see TWITTER_CONFIG_PATH to relocate the file)."
-        )
-        raise ValueError(msg)
-    return Client(bearer_token=cfg.bearer_token)
+    return create_tweepy_client_from_config(cfg)
 
 
 def collect_x_user_tweets(
@@ -387,8 +431,19 @@ def _twitter_config_from_mapping(m: dict[str, Any]) -> TwitterConfig:
             "consumer_secret",
             "consumerSecret",
             "secret_key",
+            "secrtet_key",
             "api_secret",
             "apiSecret",
+        ),
+        access_token=_mapping_str(m, "access_token", "accessToken", "oauth_token", "oauthToken"),
+        access_token_secret=_mapping_str(
+            m,
+            "access_token_secret",
+            "accessTokenSecret",
+            "oauth_token_secret",
+            "oauthTokenSecret",
+            "access_secret",
+            "accessSecret",
         ),
     )
 

@@ -9,10 +9,12 @@ from unittest.mock import MagicMock
 import pytest
 
 from finance_kol_analyzer.x_tweets import (
+    TwitterConfig,
     XTweet,
     _tweet_model_to_xtweet,
     collect_user_tweets_to_monthly_files,
     collect_x_user_tweets,
+    create_tweepy_client_from_config,
     load_twitter_config,
     normalize_x_username,
     parse_utc_date,
@@ -264,3 +266,66 @@ def test_collect_user_tweets_to_monthly_files_invalid_window() -> None:
             since=parse_utc_date("2025-06-01"),
             until=parse_utc_date("2025-01-01"),
         )
+
+
+def test_load_yaml_secrtet_key_as_consumer_secret(tmp_path) -> None:
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        "consumer_key: ck\nsecrtet_key: cs\naccess_token: at\nbearer_token: bt\n",
+        encoding="utf-8",
+    )
+    cfg = load_twitter_config(p)
+    assert cfg.consumer_key == "ck"
+    assert cfg.consumer_secret == "cs"
+    assert cfg.access_token == "at"
+    assert cfg.bearer_token == "bt"
+
+
+def test_create_tweepy_prefers_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = TwitterConfig(
+        bearer_token="b",
+        consumer_key="k",
+        consumer_secret="s",
+        access_token="a",
+        access_token_secret="x",
+    )
+    calls: list[dict] = []
+
+    def _client(**kwargs):
+        calls.append(kwargs)
+        return MagicMock()
+
+    monkeypatch.setattr("finance_kol_analyzer.x_tweets.Client", _client)
+    create_tweepy_client_from_config(cfg)
+    assert calls == [{"bearer_token": "b"}]
+
+
+def test_create_tweepy_oauth_when_no_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = TwitterConfig(
+        consumer_key="k",
+        consumer_secret="s",
+        access_token="a",
+        access_token_secret="x",
+    )
+    calls: list[dict] = []
+
+    def _client(**kwargs):
+        calls.append(kwargs)
+        return MagicMock()
+
+    monkeypatch.setattr("finance_kol_analyzer.x_tweets.Client", _client)
+    create_tweepy_client_from_config(cfg)
+    assert calls == [
+        {
+            "consumer_key": "k",
+            "consumer_secret": "s",
+            "access_token": "a",
+            "access_token_secret": "x",
+        },
+    ]
+
+
+def test_create_tweepy_raises_when_oauth_incomplete() -> None:
+    cfg = TwitterConfig(consumer_key="k", consumer_secret="s", access_token="a")
+    with pytest.raises(ValueError, match="access_token_secret"):
+        create_tweepy_client_from_config(cfg)
