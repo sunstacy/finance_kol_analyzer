@@ -281,6 +281,18 @@ def test_load_yaml_secret_key_as_consumer_secret(tmp_path) -> None:
     assert cfg.bearer_token == "bt"
 
 
+def test_load_yaml_consumer_key_secret_portal_name(tmp_path) -> None:
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        "consumer_key: ck\nconsumer_key_secret: portal_cs\nbearer_token: bt\n",
+        encoding="utf-8",
+    )
+    cfg = load_twitter_config(p)
+    assert cfg.consumer_key == "ck"
+    assert cfg.consumer_secret == "portal_cs"
+    assert cfg.bearer_token == "bt"
+
+
 def test_create_tweepy_prefers_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = TwitterConfig(
         bearer_token="b",

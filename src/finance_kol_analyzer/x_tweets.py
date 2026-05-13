@@ -6,7 +6,7 @@ the X API. Authenticate with either:
 * **Bearer token** (OAuth 2.0 app-only): ``bearer_token`` in YAML or
   ``TWITTER_BEARER_TOKEN`` / ``X_BEARER_TOKEN``, or
 * **OAuth 1.0a user context** (all four): ``consumer_key``, ``consumer_secret``
-  (or ``secret_key``), ``access_token``, and
+  (portal name ``consumer_key_secret``, or ``secret_key``), ``access_token``, and
   ``access_token_secret`` (or ``oauth_token_secret``).
 
 If a ``bearer_token`` is present, it is preferred for timeline reads. Otherwise
@@ -100,15 +100,15 @@ def load_twitter_config(path: Path | str) -> TwitterConfig:
     Common keys:
 
     * **Bearer:** ``bearer_token``
-    * **App (OAuth1):** ``consumer_key`` / ``api_key``; ``consumer_secret`` or
-      ``secret_key`` / ``api_secret``.
+    * **App (OAuth1):** ``consumer_key`` / ``api_key``; app secret as
+      ``consumer_secret``, ``consumer_key_secret`` (X portal label), ``secret_key``,
+      or ``api_secret``.
     * **User (OAuth1):** ``access_token``; ``access_token_secret`` or
       ``oauth_token_secret`` / ``access_secret``.
 
-    If you only store ``consumer_key``, ``access_token``, ``secret_key``, and
-    ``bearer_token``, then ``secret_key`` is treated as the **consumer (API) key
-    secret**; the bearer token is enough for typical timeline reads. Add
-    ``access_token_secret`` only if you rely on OAuth1 user context without a bearer.
+    With a ``bearer_token``, timeline reads use bearer auth; the other fields are
+    still loaded for OAuth1 or your own scripts. For OAuth1-only auth, all four
+    OAuth1 fields including ``access_token_secret`` are required.
     """
 
     p = Path(path)
@@ -147,6 +147,7 @@ def resolve_twitter_config(config_path: Path | str | None = None) -> TwitterConf
         consumer_secret=_first_str(
             os.environ.get("TWITTER_CONSUMER_SECRET"),
             os.environ.get("TWITTER_API_SECRET"),
+            os.environ.get("TWITTER_CONSUMER_KEY_SECRET"),
             base.consumer_secret,
         ),
         access_token=_first_str(
@@ -171,7 +172,7 @@ def create_tweepy_client_from_config(cfg: TwitterConfig) -> Client:
     if not cfg.consumer_key:
         gaps.append("consumer_key")
     if not cfg.consumer_secret:
-        gaps.append("consumer_secret (or secret_key)")
+        gaps.append("consumer_secret (consumer_key_secret / secret_key)")
     if not cfg.access_token:
         gaps.append("access_token")
     if not cfg.access_token_secret:
@@ -185,7 +186,7 @@ def create_tweepy_client_from_config(cfg: TwitterConfig) -> Client:
         )
     raise ValueError(
         "Add bearer_token for app-only auth, or supply OAuth 1.0a user credentials: "
-        "consumer_key, consumer_secret (or secret_key), access_token, and access_token_secret. "
+        "consumer_key, consumer_secret (or consumer_key_secret / secret_key), access_token, and access_token_secret. "
         f"Missing: {', '.join(gaps)}."
     )
 
@@ -430,6 +431,8 @@ def _twitter_config_from_mapping(m: dict[str, Any]) -> TwitterConfig:
             m,
             "consumer_secret",
             "consumerSecret",
+            "consumer_key_secret",
+            "consumerKeySecret",
             "secret_key",
             "api_secret",
             "apiSecret",
