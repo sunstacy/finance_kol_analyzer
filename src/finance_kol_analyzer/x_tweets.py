@@ -15,11 +15,14 @@ developer documentation for current limits.
 
 from __future__ import annotations
 
+import json
 import os
+import re
+from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 import yaml
 from tweepy import Client
@@ -244,6 +247,103 @@ def collect_x_user_tweets(
         pagination_token = next_token
 
     return tweets[:max_tweets]
+
+
+def user_tweets_archive_dirname(username: str) -> str:
+    """Return ``<handle>_tweets`` with filesystem-safe characters (handle without ``@``)."""
+
+    base = normalize_x_username(username)
+    safe = re.sub(r"[^0-9A-Za-z_]+", "_", base).strip("_")
+    if not safe:
+        safe = "user"
+    return f"{safe}_tweets"
+
+
+def tweet_to_archive_record(tweet: XTweet) -> dict[str, Any]:
+    """Minimal dict for monthly export: posting time (ISO UTC) and text."""
+
+    if tweet.created_at is not None:
+        posted = tweet.created_at.astimezone(timezone.utc).isoformat()
+    else:
+        posted = None
+    return {"posted_at": posted, "text": tweet.text}
+
+
+def group_xtweets_by_month_utc(tweets: Sequence[XTweet]) -> dict[tuple[int, int], list[XTweet]]:
+    """Bucket tweets by ``(year, month)`` in UTC. Tweets without ``created_at`` are omitted."""
+
+    buckets: dict[tuple[int, int], list[XTweet]] = defaultdict(list)
+    for t in tweets:
+        if t.created_at is None:
+            continue
+        c = t.created_at.astimezone(timezone.utc)
+        buckets[(c.year, c.month)].append(t)
+    return dict(buckets)
+
+
+def write_xtweets_monthly_files(tweets: Sequence[XTweet], output_dir: Path) -> list[Path]:
+    """Write ``YYYY-MM.txt`` files (JSON lines: ``posted_at``, ``text``), oldest first within each month."""
+
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    buckets = group_xtweets_by_month_utc(tweets)
+    written: list[Path] = []
+    for year, month in sorted(buckets.keys()):
+        rows = sorted(
+            buckets[(year, month)],
+            key=lambda tw: tw.created_at or datetime.min.replace(tzinfo=timezone.utc),
+        )
+        path = output_dir / f"{year}-{month:02d}.txt"
+        lines = [json.dumps(tweet_to_archive_record(tw), ensure_ascii=False) for tw in rows]
+        path.write_text("\n".join(lines) + ("\n" if lines else ""), encoding="utf-8")
+        written.append(path)
+    return written
+
+
+def collect_user_tweets_to_monthly_files(
+    username: str,
+    *,
+    since: datetime | None = None,
+    until: datetime | None = None,
+    output_parent: Path | str = Path("."),
+    max_tweets: int = 100_000,
+    bearer_token: str | None = None,
+    client: Client | None = None,
+    config_path: Path | str | None = None,
+    exclude_retweets: bool = False,
+    exclude_replies: bool = False,
+    include_public_metrics: bool = False,
+) -> Path:
+    """Fetch tweets in ``[since, until)`` (UTC) and save one ``YYYY-MM.txt`` per month under ``<username>_tweets/``.
+
+    Each line in a month file is a JSON object with ``posted_at`` (ISO-8601 UTC) and ``text``.
+
+    Defaults: ``since`` = 2025-01-01 00:00 UTC, ``until`` = current time UTC (``end_time`` is exclusive on the API).
+
+    Returns:
+        Absolute path to the output directory (``.../<handle>_tweets``).
+    """
+
+    start = since if since is not None else parse_utc_date("2025-01-01")
+    end = until if until is not None else datetime.now(timezone.utc)
+    if start >= end:
+        raise ValueError("until must be after since (API uses exclusive end_time)")
+
+    tweets = collect_x_user_tweets(
+        username,
+        max_tweets=max_tweets,
+        bearer_token=bearer_token,
+        client=client,
+        config_path=config_path,
+        start_time=start,
+        end_time=end,
+        exclude_retweets=exclude_retweets,
+        exclude_replies=exclude_replies,
+        include_public_metrics=include_public_metrics,
+    )
+    folder = Path(output_parent) / user_tweets_archive_dirname(username)
+    write_xtweets_monthly_files(tweets, folder)
+    return folder.resolve()
 
 
 def _tweet_model_to_xtweet(tweet: Any) -> XTweet:

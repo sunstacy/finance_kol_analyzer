@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -10,13 +11,17 @@ import pytest
 from finance_kol_analyzer.x_tweets import (
     XTweet,
     _tweet_model_to_xtweet,
+    collect_user_tweets_to_monthly_files,
     collect_x_user_tweets,
     load_twitter_config,
     normalize_x_username,
     parse_utc_date,
     resolve_twitter_config,
     resolve_twitter_config_path,
+    tweet_to_archive_record,
+    user_tweets_archive_dirname,
     utc_year_bounds,
+    write_xtweets_monthly_files,
 )
 
 
@@ -204,3 +209,58 @@ def test_resolve_twitter_config_path_from_env(tmp_path, monkeypatch: pytest.Monk
     p = tmp_path / "x.yaml"
     monkeypatch.setenv("TWITTER_CONFIG_PATH", str(p))
     assert resolve_twitter_config_path(None) == p
+
+
+def test_user_tweets_archive_dirname() -> None:
+    assert user_tweets_archive_dirname("@Some-One!") == "Some_One_tweets"
+
+
+def test_tweet_to_archive_record() -> None:
+    tw = XTweet(
+        id="1",
+        text="hello",
+        created_at=datetime(2025, 3, 4, 5, 6, 7, tzinfo=timezone.utc),
+    )
+    rec = tweet_to_archive_record(tw)
+    assert rec["text"] == "hello"
+    assert rec["posted_at"] == "2025-03-04T05:06:07+00:00"
+
+
+def test_write_xtweets_monthly_files(tmp_path) -> None:
+    tweets = [
+        XTweet(id="2", text="feb", created_at=datetime(2025, 2, 28, 23, 0, 0, tzinfo=timezone.utc)),
+        XTweet(id="1", text="jan", created_at=datetime(2025, 1, 31, 12, 0, 0, tzinfo=timezone.utc)),
+        XTweet(id="3", text="jan2", created_at=datetime(2025, 1, 2, 0, 0, 0, tzinfo=timezone.utc)),
+    ]
+    out_dir = tmp_path / "u_tweets"
+    paths = write_xtweets_monthly_files(tweets, out_dir)
+    assert {p.name for p in paths} == {"2025-01.txt", "2025-02.txt"}
+    jan = (out_dir / "2025-01.txt").read_text(encoding="utf-8").strip().splitlines()
+    assert len(jan) == 2
+    first = json.loads(jan[0])
+    second = json.loads(jan[1])
+    assert first["text"] == "jan2" and "2025-01-02" in first["posted_at"]
+    assert second["text"] == "jan" and "2025-01-31" in second["posted_at"]
+
+
+def test_collect_user_tweets_to_monthly_files(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    fake = [
+        XTweet(id="1", text="a", created_at=datetime(2025, 1, 10, tzinfo=timezone.utc)),
+    ]
+
+    def _fake_collect(*_a: object, **_k: object) -> list[XTweet]:
+        return list(fake)
+
+    monkeypatch.setattr("finance_kol_analyzer.x_tweets.collect_x_user_tweets", _fake_collect)
+    out = collect_user_tweets_to_monthly_files("Tester", output_parent=tmp_path)
+    assert out.name == "Tester_tweets"
+    assert (out / "2025-01.txt").read_text(encoding="utf-8").strip()
+
+
+def test_collect_user_tweets_to_monthly_files_invalid_window() -> None:
+    with pytest.raises(ValueError, match="until must be after"):
+        collect_user_tweets_to_monthly_files(
+            "x",
+            since=parse_utc_date("2025-06-01"),
+            until=parse_utc_date("2025-01-01"),
+        )
