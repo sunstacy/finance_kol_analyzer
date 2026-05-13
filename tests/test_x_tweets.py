@@ -9,12 +9,11 @@ from unittest.mock import MagicMock
 import pytest
 
 from finance_kol_analyzer.x_tweets import (
-    TwitterConfig,
     XTweet,
     _tweet_model_to_xtweet,
     collect_user_tweets_to_monthly_files,
     collect_x_user_tweets,
-    create_tweepy_client_from_config,
+    create_x_client_from_env,
     load_twitter_config,
     normalize_x_username,
     parse_utc_date,
@@ -169,27 +168,28 @@ def test_collect_x_passes_timeline_filters_to_api() -> None:
     assert call_kw["tweet_fields"] == ["created_at"]
 
 
-def test_load_twitter_config_secret_key_alias(tmp_path) -> None:
+def test_load_yaml_oauth2_fields(tmp_path) -> None:
     p = tmp_path / "twitter_config.yaml"
     p.write_text(
-        "consumer_key: ck\nsecret_key: cs\nbearer_token: bt\n",
+        "client_id: cid\nclient_secret: csec\naccess_token: at\nbearer_token: bt\n",
         encoding="utf-8",
     )
     cfg = load_twitter_config(p)
-    assert cfg.consumer_key == "ck"
-    assert cfg.consumer_secret == "cs"
+    assert cfg.client_id == "cid"
+    assert cfg.client_secret == "csec"
+    assert cfg.access_token == "at"
     assert cfg.bearer_token == "bt"
 
 
 def test_load_twitter_config_nested_twitter_key(tmp_path) -> None:
     p = tmp_path / "c.yaml"
     p.write_text(
-        "other: 1\ntwitter:\n  bearer_token: nested\n  consumer_key: k\n",
+        "other: 1\ntwitter:\n  bearer_token: nested\n  client_id: kid\n",
         encoding="utf-8",
     )
     cfg = load_twitter_config(p)
     assert cfg.bearer_token == "nested"
-    assert cfg.consumer_key == "k"
+    assert cfg.client_id == "kid"
 
 
 def test_resolve_twitter_config_env_overrides_file(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -268,50 +268,11 @@ def test_collect_user_tweets_to_monthly_files_invalid_window() -> None:
         )
 
 
-def test_load_yaml_secret_key_as_consumer_secret(tmp_path) -> None:
-    p = tmp_path / "t.yaml"
+def test_create_x_client_prefers_bearer(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    p = tmp_path / "tw.yaml"
     p.write_text(
-        "consumer_key: ck\nsecret_key: cs\naccess_token: at\nbearer_token: bt\n",
+        "bearer_token: b\nclient_id: x\nclient_secret: y\naccess_token: z\n",
         encoding="utf-8",
-    )
-    cfg = load_twitter_config(p)
-    assert cfg.consumer_key == "ck"
-    assert cfg.consumer_secret == "cs"
-    assert cfg.access_token == "at"
-    assert cfg.bearer_token == "bt"
-
-
-def test_load_yaml_oauth2_client_id_and_secret(tmp_path) -> None:
-    p = tmp_path / "t.yaml"
-    p.write_text(
-        "client_id: cid\nclient_secret: csec\nbearer_token: bt\n",
-        encoding="utf-8",
-    )
-    cfg = load_twitter_config(p)
-    assert cfg.consumer_key == "cid"
-    assert cfg.consumer_secret == "csec"
-    assert cfg.bearer_token == "bt"
-
-
-def test_load_yaml_consumer_key_secret_portal_name(tmp_path) -> None:
-    p = tmp_path / "t.yaml"
-    p.write_text(
-        "consumer_key: ck\nconsumer_key_secret: portal_cs\nbearer_token: bt\n",
-        encoding="utf-8",
-    )
-    cfg = load_twitter_config(p)
-    assert cfg.consumer_key == "ck"
-    assert cfg.consumer_secret == "portal_cs"
-    assert cfg.bearer_token == "bt"
-
-
-def test_create_tweepy_prefers_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = TwitterConfig(
-        bearer_token="b",
-        consumer_key="k",
-        consumer_secret="s",
-        access_token="a",
-        access_token_secret="x",
     )
     calls: list[dict] = []
 
@@ -320,17 +281,13 @@ def test_create_tweepy_prefers_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
         return MagicMock()
 
     monkeypatch.setattr("finance_kol_analyzer.x_tweets.Client", _client)
-    create_tweepy_client_from_config(cfg)
+    create_x_client_from_env(p)
     assert calls == [{"bearer_token": "b"}]
 
 
-def test_create_tweepy_oauth_when_no_bearer(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = TwitterConfig(
-        consumer_key="k",
-        consumer_secret="s",
-        access_token="a",
-        access_token_secret="x",
-    )
+def test_create_x_client_oauth2_user_bearer(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    p = tmp_path / "tw.yaml"
+    p.write_text("client_id: a\nclient_secret: b\naccess_token: user_ut\n", encoding="utf-8")
     calls: list[dict] = []
 
     def _client(**kwargs):
@@ -338,30 +295,12 @@ def test_create_tweepy_oauth_when_no_bearer(monkeypatch: pytest.MonkeyPatch) -> 
         return MagicMock()
 
     monkeypatch.setattr("finance_kol_analyzer.x_tweets.Client", _client)
-    create_tweepy_client_from_config(cfg)
-    assert calls == [
-        {
-            "consumer_key": "k",
-            "consumer_secret": "s",
-            "access_token": "a",
-            "access_token_secret": "x",
-        },
-    ]
+    create_x_client_from_env(p)
+    assert calls == [{"bearer_token": "user_ut"}]
 
 
-def test_create_tweepy_oauth2_user_three_fields(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = TwitterConfig(consumer_key="cid", consumer_secret="csec", access_token="user_oauth2_at")
-    calls: list[dict] = []
-
-    def _client(**kwargs):
-        calls.append(kwargs)
-        return MagicMock()
-
-    monkeypatch.setattr("finance_kol_analyzer.x_tweets.Client", _client)
-    create_tweepy_client_from_config(cfg)
-    assert calls == [{"bearer_token": "user_oauth2_at"}]
-
-
-def test_create_tweepy_raises_when_incomplete() -> None:
-    with pytest.raises(ValueError, match="Missing X API auth"):
-        create_tweepy_client_from_config(TwitterConfig(access_token="only"))
+def test_create_x_client_raises_when_incomplete(tmp_path) -> None:
+    p = tmp_path / "tw.yaml"
+    p.write_text("client_id: only\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="Missing OAuth 2.0"):
+        create_x_client_from_env(p)

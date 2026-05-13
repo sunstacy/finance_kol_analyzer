@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Smoke-test X credentials from twitter_config.yaml (or env).
+"""Smoke-test X OAuth 2.0 credentials from twitter_config.yaml (or env).
 
 Makes one small API call (default: ``GET /2/users/by/username`` for ``X``).
 Use this to separate **invalid tokens** (often 401) from **billing** (402).
@@ -18,10 +18,7 @@ from pathlib import Path
 
 import tweepy
 
-from finance_kol_analyzer.x_tweets import (
-    create_tweepy_client_from_config,
-    resolve_twitter_config,
-)
+from finance_kol_analyzer.x_tweets import create_x_client_from_env, resolve_twitter_config
 
 
 def _mask(value: str | None, *, head: int = 4, tail: int = 4) -> str:
@@ -35,7 +32,7 @@ def _mask(value: str | None, *, head: int = 4, tail: int = 4) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Verify X API credentials and print a minimal authenticated request result.",
+        description="Verify X API OAuth 2.0 credentials and print a minimal authenticated request result.",
     )
     parser.add_argument(
         "--config",
@@ -57,40 +54,26 @@ def main() -> int:
         return 2
 
     print("Resolved credentials (masked):")
-    print("  (``client_id`` / ``client_secret`` map to consumer_key / consumer_secret internally.)")
-    print(f"  consumer_key:          {_mask(cfg.consumer_key)}")
-    print(f"  consumer_key_secret:   {_mask(cfg.consumer_secret)}")
-    print(f"  access_token:          {_mask(cfg.access_token)}")
-    print(f"  access_token_secret:   {_mask(cfg.access_token_secret)}")
-    print(f"  bearer_token:          {_mask(cfg.bearer_token)}")
+    print(f"  client_id:      {_mask(cfg.client_id)}")
+    print(f"  client_secret:  {_mask(cfg.client_secret)}")
+    print(f"  access_token:   {_mask(cfg.access_token)}  (OAuth 2.0 user; used as Bearer if no bearer_token)")
+    print(f"  bearer_token:   {_mask(cfg.bearer_token)}  (app or explicit user bearer)")
     if cfg.bearer_token:
         print("\nAuth mode: **bearer_token** → ``Client(bearer_token=…)``.")
-    elif (
-        cfg.consumer_key
-        and cfg.consumer_secret
-        and cfg.access_token
-        and cfg.access_token_secret
-    ):
-        print("\nAuth mode: **OAuth 1.0a user** → ``Client(consumer_key, …, access_token_secret)``.")
-    elif (
-        cfg.consumer_key
-        and cfg.consumer_secret
-        and cfg.access_token
-        and not cfg.access_token_secret
-    ):
+    elif cfg.client_id and cfg.client_secret and cfg.access_token:
         print(
             "\nAuth mode: **OAuth 2.0 user** → ``Client(bearer_token=access_token)`` "
-            "(user access token only; client id/secret are not sent on each HTTP call)."
+            "(client id/secret are not sent on each HTTP call)."
         )
     else:
         print(
-            "\nERROR: Incomplete configuration. See create_tweepy_client_from_config doc / error text.",
+            "\nERROR: Set bearer_token, or client_id + client_secret + access_token.",
             file=sys.stderr,
         )
         return 2
 
     try:
-        client = create_tweepy_client_from_config(cfg)
+        client = create_x_client_from_env(args.config)
     except ValueError as exc:
         print(f"\nERROR: {exc}", file=sys.stderr)
         return 2
