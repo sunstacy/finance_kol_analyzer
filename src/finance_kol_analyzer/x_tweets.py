@@ -1,16 +1,22 @@
 """Collect posts from an X (Twitter) user timeline via the official API v2.
 
 Uses `tweepy` (https://github.com/tweepy/tweepy), the de facto Python client for
-the X API. Authenticate with either:
+the X API. Authenticate with any of:
 
-* **Bearer token** (OAuth 2.0 app-only): ``bearer_token`` in YAML or
-  ``TWITTER_BEARER_TOKEN`` / ``X_BEARER_TOKEN``, or
-* **OAuth 1.0a user context** (all four): ``consumer_key`` (or OAuth2 ``client_id``),
-  ``consumer_key_secret`` (or ``client_secret`` / legacy ``consumer_secret`` /
-  ``secret_key``), ``access_token``, and ``access_token_secret`` (or ``oauth_token_secret``).
+* **Bearer token** — app-only or OAuth 2.0 user access token: set ``bearer_token``
+  in YAML or ``TWITTER_BEARER_TOKEN`` / ``X_BEARER_TOKEN``.
+* **OAuth 2.0 user (three fields)** — ``client_id``, ``client_secret``, and
+  ``access_token`` (the **user** access token from the OAuth 2.0 / PKCE flow).
+  Tweepy sends it as ``Authorization: Bearer …``; client id/secret are not
+  attached to each API call but are kept so your file matches the app you used
+  to obtain the token.
+* **OAuth 1.0a user** — ``consumer_key`` (or ``client_id``), ``consumer_key_secret``
+  (or ``client_secret`` / ``secret_key``), ``access_token``, **and**
+  ``access_token_secret``.
 
-If a ``bearer_token`` is present, it is preferred for timeline reads. Otherwise
-a user-context ``Client`` is built when all OAuth1 fields are available.
+If ``bearer_token`` is set, it wins. Otherwise OAuth 1.0a is used only when
+``access_token_secret`` is present; if it is absent but client id, secret, and
+``access_token`` are present, the OAuth 2.0 user Bearer path is used.
 
 Timeline access and volume depend on your X developer project tier; see X
 developer documentation for current limits.
@@ -38,6 +44,8 @@ class TwitterConfig:
     The X app **Consumer Key Secret** is stored in ``consumer_secret`` (tweepy’s
     parameter name). In YAML, use ``consumer_key_secret`` to match the developer portal,
     or ``client_id`` / ``client_secret`` for OAuth 2.0 app labels (same values for tweepy).
+    An OAuth 2.0 **user** access token may appear as ``access_token`` (no secret); the
+    client is built with ``Client(bearer_token=access_token)``.
     """
 
     bearer_token: str | None = None
@@ -108,12 +116,11 @@ def load_twitter_config(path: Path | str) -> TwitterConfig:
     * **App keys:** ``consumer_key`` or OAuth 2.0 ``client_id`` (same value for tweepy);
       app secret as ``consumer_key_secret``, OAuth 2.0 ``client_secret``, or legacy
       ``consumer_secret`` / ``secret_key``.
-    * **User (OAuth1):** ``access_token``; ``access_token_secret`` or
-      ``oauth_token_secret`` / ``access_secret``.
-
-    With a ``bearer_token``, timeline reads use bearer auth; the other fields are
-    still loaded for OAuth1 or your own scripts. For OAuth1-only auth, all four
-    OAuth1 fields including ``access_token_secret`` are required.
+    * **OAuth 2.0 user (PKCE):** ``client_id``, ``client_secret``, ``access_token``
+      (user access token; no ``access_token_secret``). Same as ``consumer_key`` /
+      ``consumer_key_secret`` keys if you prefer those names.
+    * **OAuth 1.0a user:** add ``access_token_secret``; then all four OAuth1 fields are used
+      instead of Bearer-from-``access_token``.
     """
 
     p = Path(path)
@@ -177,26 +184,35 @@ def create_tweepy_client_from_config(cfg: TwitterConfig) -> Client:
 
     if cfg.bearer_token:
         return Client(bearer_token=cfg.bearer_token)
-    gaps: list[str] = []
-    if not cfg.consumer_key:
-        gaps.append("consumer_key (or client_id / TWITTER_CLIENT_ID)")
-    if not cfg.consumer_secret:
-        gaps.append("consumer_key_secret (or client_secret / consumer_secret)")
-    if not cfg.access_token:
-        gaps.append("access_token")
-    if not cfg.access_token_secret:
-        gaps.append("access_token_secret (or oauth_token_secret)")
-    if not gaps:
+
+    if (
+        cfg.consumer_key
+        and cfg.consumer_secret
+        and cfg.access_token
+        and cfg.access_token_secret
+    ):
         return Client(
             consumer_key=cfg.consumer_key,
             consumer_secret=cfg.consumer_secret,
             access_token=cfg.access_token,
             access_token_secret=cfg.access_token_secret,
         )
+
+    if (
+        cfg.consumer_key
+        and cfg.consumer_secret
+        and cfg.access_token
+        and not cfg.access_token_secret
+    ):
+        # OAuth 2.0 user access token: tweepy uses ``Authorization: Bearer …`` when
+        # ``user_auth`` is false (default for ``get_user`` / ``get_users_tweets``).
+        return Client(bearer_token=cfg.access_token)
+
     raise ValueError(
-        "Add bearer_token for app-only auth, or supply OAuth 1.0a user credentials: "
-        "consumer_key (or client_id), consumer_key_secret (or client_secret), access_token, and access_token_secret. "
-        f"Missing: {', '.join(gaps)}."
+        "Missing X API auth. Use one of:\n"
+        "  • bearer_token (app or OAuth 2.0 user access token), or\n"
+        "  • client_id + client_secret + access_token (OAuth 2.0 user, no access_token_secret), or\n"
+        "  • consumer_key + consumer_secret + access_token + access_token_secret (OAuth 1.0a user)."
     )
 
 

@@ -57,24 +57,34 @@ def main() -> int:
         return 2
 
     print("Resolved credentials (masked):")
-    print("  (OAuth 2.0 ``client_id`` / ``client_secret`` map to consumer_key / consumer_secret for tweepy.)")
+    print("  (``client_id`` / ``client_secret`` map to consumer_key / consumer_secret internally.)")
     print(f"  consumer_key:          {_mask(cfg.consumer_key)}")
-    print(f"  consumer_key_secret:   {_mask(cfg.consumer_secret)}  (stored as consumer_secret for tweepy)")
+    print(f"  consumer_key_secret:   {_mask(cfg.consumer_secret)}")
     print(f"  access_token:          {_mask(cfg.access_token)}")
     print(f"  access_token_secret:   {_mask(cfg.access_token_secret)}")
     print(f"  bearer_token:          {_mask(cfg.bearer_token)}")
     if cfg.bearer_token:
-        print("\nAuth mode: **bearer_token** (used for Client).")
+        print("\nAuth mode: **bearer_token** → ``Client(bearer_token=…)``.")
     elif (
         cfg.consumer_key
         and cfg.consumer_secret
         and cfg.access_token
         and cfg.access_token_secret
     ):
-        print("\nAuth mode: **OAuth 1.0a user** (consumer + access tokens).")
+        print("\nAuth mode: **OAuth 1.0a user** → ``Client(consumer_key, …, access_token_secret)``.")
+    elif (
+        cfg.consumer_key
+        and cfg.consumer_secret
+        and cfg.access_token
+        and not cfg.access_token_secret
+    ):
+        print(
+            "\nAuth mode: **OAuth 2.0 user** → ``Client(bearer_token=access_token)`` "
+            "(user access token only; client id/secret are not sent on each HTTP call)."
+        )
     else:
         print(
-            "\nERROR: Incomplete configuration. Add bearer_token, or all OAuth1 fields.",
+            "\nERROR: Incomplete configuration. See create_tweepy_client_from_config doc / error text.",
             file=sys.stderr,
         )
         return 2

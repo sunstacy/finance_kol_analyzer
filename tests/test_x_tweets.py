@@ -349,7 +349,19 @@ def test_create_tweepy_oauth_when_no_bearer(monkeypatch: pytest.MonkeyPatch) -> 
     ]
 
 
-def test_create_tweepy_raises_when_oauth_incomplete() -> None:
-    cfg = TwitterConfig(consumer_key="k", consumer_secret="s", access_token="a")
-    with pytest.raises(ValueError, match="access_token_secret"):
-        create_tweepy_client_from_config(cfg)
+def test_create_tweepy_oauth2_user_three_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = TwitterConfig(consumer_key="cid", consumer_secret="csec", access_token="user_oauth2_at")
+    calls: list[dict] = []
+
+    def _client(**kwargs):
+        calls.append(kwargs)
+        return MagicMock()
+
+    monkeypatch.setattr("finance_kol_analyzer.x_tweets.Client", _client)
+    create_tweepy_client_from_config(cfg)
+    assert calls == [{"bearer_token": "user_oauth2_at"}]
+
+
+def test_create_tweepy_raises_when_incomplete() -> None:
+    with pytest.raises(ValueError, match="Missing X API auth"):
+        create_tweepy_client_from_config(TwitterConfig(access_token="only"))
