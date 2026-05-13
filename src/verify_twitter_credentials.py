@@ -57,6 +57,7 @@ def main() -> int:
         return 2
 
     print("Resolved credentials (masked):")
+    print("  (OAuth 2.0 ``client_id`` / ``client_secret`` map to consumer_key / consumer_secret for tweepy.)")
     print(f"  consumer_key:          {_mask(cfg.consumer_key)}")
     print(f"  consumer_key_secret:   {_mask(cfg.consumer_secret)}  (stored as consumer_secret for tweepy)")
     print(f"  access_token:          {_mask(cfg.access_token)}")

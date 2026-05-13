@@ -5,10 +5,9 @@ the X API. Authenticate with either:
 
 * **Bearer token** (OAuth 2.0 app-only): ``bearer_token`` in YAML or
   ``TWITTER_BEARER_TOKEN`` / ``X_BEARER_TOKEN``, or
-* **OAuth 1.0a user context** (all four): ``consumer_key``, ``consumer_key_secret``
-  (same value as tweepy’s ``consumer_secret``; optional legacy YAML keys:
-  ``consumer_secret``, ``secret_key``), ``access_token``, and
-  ``access_token_secret`` (or ``oauth_token_secret``).
+* **OAuth 1.0a user context** (all four): ``consumer_key`` (or OAuth2 ``client_id``),
+  ``consumer_key_secret`` (or ``client_secret`` / legacy ``consumer_secret`` /
+  ``secret_key``), ``access_token``, and ``access_token_secret`` (or ``oauth_token_secret``).
 
 If a ``bearer_token`` is present, it is preferred for timeline reads. Otherwise
 a user-context ``Client`` is built when all OAuth1 fields are available.
@@ -37,7 +36,8 @@ class TwitterConfig:
     """Credentials loaded from YAML and/or the environment.
 
     The X app **Consumer Key Secret** is stored in ``consumer_secret`` (tweepy’s
-    parameter name). In YAML, use ``consumer_key_secret`` to match the developer portal.
+    parameter name). In YAML, use ``consumer_key_secret`` to match the developer portal,
+    or ``client_id`` / ``client_secret`` for OAuth 2.0 app labels (same values for tweepy).
     """
 
     bearer_token: str | None = None
@@ -105,9 +105,9 @@ def load_twitter_config(path: Path | str) -> TwitterConfig:
     Common keys:
 
     * **Bearer:** ``bearer_token``
-    * **App (OAuth1):** ``consumer_key`` / ``api_key``; app secret as
-      ``consumer_key_secret`` (recommended — same label as the X developer app UI).
-      ``consumer_secret`` or ``secret_key`` are still accepted for older configs.
+    * **App keys:** ``consumer_key`` or OAuth 2.0 ``client_id`` (same value for tweepy);
+      app secret as ``consumer_key_secret``, OAuth 2.0 ``client_secret``, or legacy
+      ``consumer_secret`` / ``secret_key``.
     * **User (OAuth1):** ``access_token``; ``access_token_secret`` or
       ``oauth_token_secret`` / ``access_secret``.
 
@@ -147,12 +147,16 @@ def resolve_twitter_config(config_path: Path | str | None = None) -> TwitterConf
         consumer_key=_first_str(
             os.environ.get("TWITTER_CONSUMER_KEY"),
             os.environ.get("TWITTER_API_KEY"),
+            os.environ.get("TWITTER_CLIENT_ID"),
+            os.environ.get("X_CLIENT_ID"),
             base.consumer_key,
         ),
         consumer_secret=_first_str(
             os.environ.get("TWITTER_CONSUMER_KEY_SECRET"),
             os.environ.get("TWITTER_CONSUMER_SECRET"),
             os.environ.get("TWITTER_API_SECRET"),
+            os.environ.get("TWITTER_CLIENT_SECRET"),
+            os.environ.get("X_CLIENT_SECRET"),
             base.consumer_secret,
         ),
         access_token=_first_str(
@@ -175,9 +179,9 @@ def create_tweepy_client_from_config(cfg: TwitterConfig) -> Client:
         return Client(bearer_token=cfg.bearer_token)
     gaps: list[str] = []
     if not cfg.consumer_key:
-        gaps.append("consumer_key")
+        gaps.append("consumer_key (or client_id / TWITTER_CLIENT_ID)")
     if not cfg.consumer_secret:
-        gaps.append("consumer_key_secret (or consumer_secret)")
+        gaps.append("consumer_key_secret (or client_secret / consumer_secret)")
     if not cfg.access_token:
         gaps.append("access_token")
     if not cfg.access_token_secret:
@@ -191,7 +195,7 @@ def create_tweepy_client_from_config(cfg: TwitterConfig) -> Client:
         )
     raise ValueError(
         "Add bearer_token for app-only auth, or supply OAuth 1.0a user credentials: "
-        "consumer_key, consumer_key_secret (or consumer_secret), access_token, and access_token_secret. "
+        "consumer_key (or client_id), consumer_key_secret (or client_secret), access_token, and access_token_secret. "
         f"Missing: {', '.join(gaps)}."
     )
 
@@ -431,11 +435,25 @@ def _first_str(*candidates: str | None) -> str | None:
 def _twitter_config_from_mapping(m: dict[str, Any]) -> TwitterConfig:
     return TwitterConfig(
         bearer_token=_mapping_str(m, "bearer_token", "bearerToken"),
-        consumer_key=_mapping_str(m, "consumer_key", "consumerKey", "api_key", "apiKey"),
+        consumer_key=_mapping_str(
+            m,
+            "consumer_key",
+            "consumerKey",
+            "api_key",
+            "apiKey",
+            "client_id",
+            "clientId",
+            "oauth2_client_id",
+            "oauth2ClientId",
+        ),
         consumer_secret=_mapping_str(
             m,
             "consumer_key_secret",
             "consumerKeySecret",
+            "client_secret",
+            "clientSecret",
+            "oauth2_client_secret",
+            "oauth2ClientSecret",
             "consumer_secret",
             "consumerSecret",
             "secret_key",

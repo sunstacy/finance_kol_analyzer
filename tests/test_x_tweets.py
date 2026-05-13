@@ -281,6 +281,18 @@ def test_load_yaml_secret_key_as_consumer_secret(tmp_path) -> None:
     assert cfg.bearer_token == "bt"
 
 
+def test_load_yaml_oauth2_client_id_and_secret(tmp_path) -> None:
+    p = tmp_path / "t.yaml"
+    p.write_text(
+        "client_id: cid\nclient_secret: csec\nbearer_token: bt\n",
+        encoding="utf-8",
+    )
+    cfg = load_twitter_config(p)
+    assert cfg.consumer_key == "cid"
+    assert cfg.consumer_secret == "csec"
+    assert cfg.bearer_token == "bt"
+
+
 def test_load_yaml_consumer_key_secret_portal_name(tmp_path) -> None:
     p = tmp_path / "t.yaml"
     p.write_text(
